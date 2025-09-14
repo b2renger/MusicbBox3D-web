@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Chime Wall</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/addons/p5.sound.min.js"></script>
+    <style>
+        :root {
+            --bg-color: #000000;
+            --panel-bg: rgba(18, 18, 22, 0.7);
+            --border-color: #333;
+            --text-color: #e0e0e0;
+            --label-color: #b0b0b0;
+            --accent-color: #9f7aea;
+            --accent-text: #d8b4fe;
+            --accent-hover: #805ad5;
+            --input-bg: #2d3748;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            overflow: hidden;
+        }
+
+        #start-overlay {
+            position: absolute;
+            inset: 0;
+            background-color: rgba(0,0,0,0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            transition: opacity 0.5s;
+        }
+
+        #start-overlay.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        #start-button {
+            padding: 1rem 2rem;
+            background-color: var(--accent-color);
+            color: white;
+            font-weight: bold;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            font-size: 1.5rem;
+            animation: pulse 2s infinite;
+            transition: background-color 0.3s;
+        }
+
+        #start-button:hover {
+            background-color: var(--accent-hover);
+            animation: none;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+
+        .container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            padding: 0.25rem;
+            gap: 0.25rem;
+            box-sizing: border-box;
+        }
+
+        @media (min-width: 768px) {
+            .container {
+                flex-direction: row;
+            }
+        }
+
+        #canvas-container {
+            flex-grow: 1;
+            position: relative;
+            min-height: 200px;
+        }
+
+        .gui-container {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            width: 100%;
+            flex-shrink: 0;
+            overflow-y: auto;
+        }
+
+        @media (min-width: 768px) {
+            .gui-container {
+                width: 220px;
+                max-height: calc(100vh - 0.5rem);
+            }
+        }
+
+        .gui-panel {
+            background-color: var(--panel-bg);
+            backdrop-filter: blur(5px);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 0.5rem;
+        }
+
+        .gui-panel h2 {
+            font-size: 0.9rem;
+            font-weight: bold;
+            color: var(--accent-text);
+            margin-top: 0;
+            margin-bottom: 0.5rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid var(--border-color);
+            cursor: pointer;
+            user-select: none;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: margin-bottom 0.3s ease;
+        }
+
+        .gui-panel h2::after {
+            content: '▾';
+            transition: transform 0.3s ease;
+        }
+
+        .gui-panel.collapsed h2::after {
+            transform: rotate(-90deg);
+        }
+        
+        .gui-panel.collapsed h2 {
+            margin-bottom: 0;
+        }
+
+        .gui-panel-content {
+            overflow: hidden;
+            max-height: 500px; /* Sufficiently large height */
+            transition: max-height 0.3s ease-out;
+        }
+
+        .gui-panel.collapsed .gui-panel-content {
+            max-height: 0;
+        }
+
+        .control {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .control:last-child {
+            margin-bottom: 0;
+        }
+
+        .label-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.8rem;
+        }
+
+        .label-container label, .control > label {
+            font-weight: 500;
+            color: var(--label-color);
+        }
+
+        .label-container span {
+            color: var(--accent-text);
+            font-family: monospace;
+            background-color: var(--input-bg);
+            padding: 0.125rem 0.5rem;
+            border-radius: 4px;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            -webkit-appearance: none;
+            appearance: none;
+            height: 8px;
+            background: #4a5568;
+            border-radius: 4px;
+            cursor: pointer;
+            outline: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            background: var(--accent-color);
+            border-radius: 50%;
+            cursor: pointer;
+        }
+
+        input[type="range"]::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            background: var(--accent-color);
+            border-radius: 50%;
+            cursor: pointer;
+        }
+
+        button {
+            width: 100%;
+            padding: 0.6rem 1rem;
+            background-color: var(--accent-color);
+            color: white;
+            font-weight: 600;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            outline: none;
+            font-size: 0.9rem;
+        }
+
+        button:hover {
+            background-color: var(--accent-hover);
+        }
+        
+        select {
+             width: 100%;
+            -webkit-appearance: none;
+            appearance: none;
+            background-image: url('data:image/svg+xml;charset=UTF-8,%3csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="white"%3e%3cpath fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /%3e%3c/svg%3e');
+            background-repeat: no-repeat;
+            background-position: right 0.7rem center;
+            background-size: 1.2em 1.2em;
+            background-color: var(--input-bg);
+            border: 1px solid var(--border-color);
+            color: white;
+            padding: 0.6rem 1rem;
+            border-radius: 6px;
+        }
+
+    </style>
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://aistudiocdn.com/react@^19.1.1",
+    "react/": "https://aistudiocdn.com/react@^19.1.1/",
+    "p5": "https://aistudiocdn.com/p5@^2.0.5"
+  }
+}
+</script>
+</head>
+<body>
+    <div id="start-overlay">
+        <button id="start-button">Click to Start</button>
+    </div>
+
+    <div class="container">
+        <div id="canvas-container"></div>
+        <div class="gui-container">
+            <div class="gui-panel">
+                <h2>Simulation</h2>
+                <div class="gui-panel-content">
+                    <div class="control">
+                        <div class="label-container">
+                            <label for="bpm">BPM</label>
+                            <span id="bpm-value">60</span>
+                        </div>
+                        <input type="range" id="bpm" min="30" max="120" step="1" value="60">
+                    </div>
+                    <div class="control">
+                        <div class="label-container">
+                            <label for="maxCycle">Max Cycle</label>
+                            <span id="maxCycle-value">9</span>
+                        </div>
+                        <input type="range" id="maxCycle" min="1" max="20" step="1" value="9">
+                    </div>
+                    <button id="reset-button">Reset</button>
+                </div>
+            </div>
+
+            <div class="gui-panel">
+                <h2>Synthesis</h2>
+                <div class="gui-panel-content">
+                    <div class="control">
+                        <div class="label-container">
+                            <label for="decay">Decay</label>
+                            <span id="decay-value">50</span>
+                        </div>
+                        <input type="range" id="decay" min="50" max="1000" step="10" value="50">
+                    </div>
+                    <div class="control">
+                        <label for="soundPreset">Sound Preset</label>
+                        <select id="soundPreset">
+                            <option value="pluck">pluck</option>
+                            <option value="voicy">voicy</option>
+                        </select>
+                    </div>
+                    <div class="control">
+                        <div class="label-container">
+                            <label for="reverb">Reverb</label>
+                            <span id="reverb-value">48</span>
+                        </div>
+                        <input type="range" id="reverb" min="0" max="100" step="1" value="48">
+                    </div>
+                </div>
+            </div>
+
+            <div class="gui-panel">
+                <h2>Harmony</h2>
+                <div class="gui-panel-content">
+                    <div class="control">
+                        <div class="label-container">
+                            <label for="baseNote">Base Note</label>
+                            <span id="baseNote-value">C4</span>
+                        </div>
+                        <input type="range" id="baseNote" min="36" max="72" step="1" value="60">
+                    </div>
+                    <div class="control">
+                        <label for="scale">Scale</label>
+                        <select id="scale">
+                            <option value="Pentatonic">Pentatonic</option>
+                            <option value="Major">Major</option>
+                            <option value="Minor">Minor</option>
+                            <option value="Blues">Blues</option>
+                            <option value="Dorian">Dorian</option>
+                            <option value="Mixolydian">Mixolydian</option>
+                            <option value="Lydian">Lydian</option>
+                            <option value="Harmonic Minor">Harmonic Minor</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script type="module" src="/index.tsx"></script>
+</body>
+</html>

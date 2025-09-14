@@ -1,0 +1,5 @@
+{
+  "name": "Chime Wall",
+  "description": "An interactive, generative audiovisual experience where rotating cubes trigger musical notes as they revolve around a central cylinder. Control simulation and audio parameters to create your own unique soundscape.",
+  "requestFramePermissions": []
+}
