@@ -1,3 +1,4 @@
+
 import GUI from 'lil-gui';
 
 // Informs TypeScript that a 'p5' variable exists in the global scope,
@@ -11,9 +12,9 @@ declare var p5: any;
  * lil-gui will directly bind to and modify this object.
  */
 const params = {
-    simulation: { bpm: 45, maxCycle: 9 },
-    synthesis: { decay: 50, soundPreset: 'pluck', reverb: 48 },
-    harmony: { baseNote: 60, scale: 'Pentatonic' },
+    simulation: { bpm: 45, maxCycle: 9, infiniteLifespan: false },
+    synthesis: { gain: 80, decay: 200, soundPreset: '303 Acid', reverb: 48, reverbTime: 30 },
+    harmony: { baseNote: 48, scale: 'Pentatonic' },
 };
 
 /**
@@ -41,8 +42,9 @@ const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 
 
 const sketch = (p: any) => {
     let cubes: Cube[] = [];
-    let synths: { pluck?: any, voicy?: any, pad?: any, bass?: any, bell?: any, lead?: any, sfx?: any } = {};
-    let reverb: any;
+    let synths: { [key: string]: any } = {};
+    let kickSynth: any, snareSynth: any, hatSynth: any;
+    let reverb: any, compressor: any;
     let audioStarted = false;
     let font: string;
     let uiLayer: any; // Off-screen buffer for 2D UI elements
@@ -119,12 +121,16 @@ const sketch = (p: any) => {
                 this.triggerNote();
             }
             
-            if (this.bounceCount >= params.simulation.maxCycle) {
-                this.opacity = 0;
+            if (params.simulation.infiniteLifespan) {
+                this.opacity = 100;
             } else {
-                this.opacity = this.p.map(this.bounceCount, 0, params.simulation.maxCycle, 100, 30);
+                if (this.bounceCount >= params.simulation.maxCycle) {
+                    this.opacity = 0;
+                } else {
+                    this.opacity = this.p.map(this.bounceCount, 0, params.simulation.maxCycle, 100, 30);
+                }
+                this.opacity = this.p.max(this.opacity, 0);
             }
-            this.opacity = this.p.max(this.opacity, 0);
 
             if (this.glow > 0.01) {
                 this.glow *= 0.92;
@@ -136,28 +142,71 @@ const sketch = (p: any) => {
         triggerNote() {
             this.glow = 1.0;
 
+            // Common calculations for note placement
             const { cylinderLength } = getCylinderDimensions();
             const normalizedPos = this.p.map(this.len, -cylinderLength / 2, cylinderLength / 2, 0, 1);
             const laneIndex = this.p.floor(this.p.constrain(normalizedPos * 12, 0, 11));
 
             const scaleIntervals = SCALES[params.harmony.scale];
             const numNotesInScale = scaleIntervals.length;
-
             const noteInScaleIndex = laneIndex % numNotesInScale;
             const octaveOffset = Math.floor(laneIndex / numNotesInScale);
-            
             const scaleInterval = scaleIntervals[noteInScaleIndex];
-            const midiNote = params.harmony.baseNote + scaleInterval + (octaveOffset * 12);
+            const baseMidiNote = params.harmony.baseNote + scaleInterval + (octaveOffset * 12);
+            const noteName = `${NOTE_NAMES[baseMidiNote % 12]}${Math.floor(baseMidiNote / 12) - 1}`;
 
-            const noteIndex = midiNote % 12;
-            const octave = Math.floor(midiNote / 12) - 1;
-            const note = `${NOTE_NAMES[noteIndex]}${octave}`;
-            
-            const synth = synths[params.synthesis.soundPreset as keyof typeof synths];
-            if (synth) {
-                // Decay is now set via updateAudioParams, so we just need a duration.
-                // The ADSR release phase will handle the fade out.
-                synth.play(note, 0.5, 0, 0.1);
+            const gain = params.synthesis.gain / 100;
+
+            switch (params.synthesis.soundPreset) {
+                case '808 Kick':
+                    if (kickSynth) {
+                        // The kick's pitch is now tuned to the specific note lane
+                        const kickFreq = this.p.midiToFreq(baseMidiNote);
+                        // Start high for the 'click' of the beater
+                        kickSynth.osc.freq(kickFreq * 3, 0.001);
+                        // Quickly drop to the fundamental resonant frequency
+                        kickSynth.osc.freq(kickFreq, 0.08);
+                        kickSynth.envelope.play();
+                    }
+                    break;
+
+                case '808 Snare':
+                    if (snareSynth) {
+                        snareSynth.noiseEnv.play();
+                        // The snare's tonal body is now tuned to the specific note lane
+                        snareSynth.tone.freq(this.p.midiToFreq(baseMidiNote));
+                        snareSynth.toneEnv.play();
+                    }
+                    break;
+                
+                case '808 Hat':
+                    if (hatSynth && hatSynth.filter) {
+                        // Modulate the high-pass filter to give a sense of pitch.
+                        // A higher note will sound brighter. The `true` flag constrains the output.
+                        const filterFreq = this.p.map(baseMidiNote, 36, 96, 6000, 15000, true);
+                        hatSynth.filter.freq(filterFreq);
+                        hatSynth.envelope.play();
+                    }
+                    break;
+
+                case '808 Cowbell':
+                    if (synths['808 Cowbell']) {
+                        // Generate two frequencies based on the note lane for a classic metallic sound
+                        const freq1 = this.p.midiToFreq(baseMidiNote);
+                        // The second frequency is a perfect fifth higher, characteristic of the 808 cowbell
+                        const freq2 = freq1 * 1.5; 
+                        synths['808 Cowbell'].play(freq1, gain * 0.8, 0, 0.05);
+                        synths['808 Cowbell'].play(freq2, gain * 0.5, 0, 0.05);
+                    }
+                    break;
+                    
+                default:
+                    // Handle all other PolySynth-based presets
+                    const synth = synths[params.synthesis.soundPreset];
+                    if (synth) {
+                        synth.play(noteName, gain * 0.8, 0, 0.1);
+                    }
+                    break;
             }
         }
 
@@ -182,6 +231,19 @@ const sketch = (p: any) => {
             this.p.noStroke();
             this.p.emissiveMaterial(this.hue, saturation, brightness, this.opacity);
             this.p.box(currentSize);
+
+            // --- Visual Highlight ---
+            if (this.glow > 0.01) {
+                this.p.push();
+                const highlightOpacity = this.p.map(this.glow, 0, 1, 0, 80);
+                const highlightSize = currentSize * 1.25;
+                this.p.noFill();
+                this.p.strokeWeight(this.p.map(this.glow, 0, 1, 0, 4));
+                this.p.stroke(this.hue, 10, 100, highlightOpacity);
+                this.p.box(highlightSize);
+                this.p.pop();
+            }
+            
             this.p.pop();
         }
     }
@@ -191,29 +253,88 @@ const sketch = (p: any) => {
      */
     function updateAudioParams() {
         if (!reverb) return;
+
+        // --- Reverb and Master Effects ---
+        const reverbTimeSeconds = p.map(params.synthesis.reverbTime, 0, 100, 0.01, 8);
+        const decayRate = 1.5;
+        reverb.set(reverbTimeSeconds, decayRate, false);
         reverb.drywet(params.synthesis.reverb / 100);
         
+        // --- Synth-specific Parameters ---
+        const gain = params.synthesis.gain / 100;
         const decaySeconds = params.synthesis.decay / 1000;
 
-        // Set ADSR envelopes for each synth
-        if (synths.pluck) synths.pluck.setADSR(0.01, decaySeconds, 0, 0.1);
-        if (synths.voicy) synths.voicy.setADSR(0.2, decaySeconds, 0.2, 0.5);
-        if (synths.pad) synths.pad.setADSR(0.8, decaySeconds, 0.5, 0.8);
-        if (synths.bass) synths.bass.setADSR(0.02, decaySeconds * 0.5, 0.1, 0.2);
-        if (synths.bell) synths.bell.setADSR(0.01, decaySeconds * 2, 0, 0.1);
-        if (synths.lead) synths.lead.setADSR(0.05, decaySeconds, 0.6, 0.4);
-        if (synths.sfx) synths.sfx.setADSR(0.001, decaySeconds * 0.2, 0, 0.1);
+        // --- PolySynth ADSR Configurations ---
+        if (synths['303 Acid']) synths['303 Acid'].setADSR(0.01, decaySeconds * 0.3, 0, 0.2);
+        if (synths['Moog Bass']) synths['Moog Bass'].setADSR(0.02, decaySeconds * 0.5, 0.1, 0.4);
+        if (synths['Moog Lead']) synths['Moog Lead'].setADSR(0.1, decaySeconds, 0.7, 0.5);
+        if (synths['FM Bell']) synths['FM Bell'].setADSR(0.01, decaySeconds * 1.5, 0, 0.5);
+        if (synths['Soft Pad']) synths['Soft Pad'].setADSR(0.8, decaySeconds, 0.5, 0.8);
+        if (synths['Pluck']) synths['Pluck'].setADSR(0.01, decaySeconds * 0.8, 0, 0.1);
+        if (synths['808 Cowbell']) synths['808 Cowbell'].setADSR(0.005, decaySeconds * 0.1, 0, 0.05);
+
+        // --- Custom Synth Envelope Configurations ---
+        if (kickSynth) {
+            kickSynth.envelope.setADSR(0.001, decaySeconds * 0.8, 0.01, 0.1);
+            kickSynth.envelope.setRange(gain * 1.0, 0);
+        }
+        if (snareSynth) {
+            snareSynth.noiseEnv.setADSR(0.001, decaySeconds * 0.2, 0, 0.01);
+            snareSynth.toneEnv.setADSR(0.001, decaySeconds * 0.1, 0, 0.01);
+            snareSynth.noiseEnv.setRange(gain * 1.0, 0);
+            snareSynth.toneEnv.setRange(gain * 0.7, 0);
+        }
+        if (hatSynth) {
+            hatSynth.envelope.setADSR(0.001, decaySeconds * 0.05, 0, 0.01);
+            hatSynth.envelope.setRange(gain * 0.3, 0);
+        }
+    }
+
+    /**
+     * Draws a cylinder with a vertical gradient fill along its main axis.
+     */
+    function drawGradientCylinder(radius: number, height: number, detail: number) {
+        const colorBottom = p.color(260, 40, 30, 80);
+        const colorTop = p.color(290, 60, 85, 80);
+
+        p.beginShape(p.TRIANGLE_STRIP);
+        for (let i = 0; i <= detail; i++) {
+            const angle = p.map(i, 0, detail, 0, p.TWO_PI);
+            const x = p.cos(angle) * radius;
+            const z = p.sin(angle) * radius;
+            p.fill(colorBottom); p.vertex(x, -height / 2, z);
+            p.fill(colorTop); p.vertex(x, height / 2, z);
+        }
+        p.endShape();
+        
+        p.beginShape(p.TRIANGLE_FAN);
+        p.fill(colorTop);
+        p.vertex(0, height / 2, 0);
+        for (let i = 0; i <= detail; i++) {
+            const angle = p.map(i, 0, detail, 0, p.TWO_PI);
+            const x = p.cos(angle) * radius;
+            const z = p.sin(angle) * radius;
+            p.vertex(x, height / 2, z);
+        }
+        p.endShape();
+
+        p.beginShape(p.TRIANGLE_FAN);
+        p.fill(colorBottom);
+        p.vertex(0, -height / 2, 0);
+        for (let i = detail; i >= 0; i--) {
+            const angle = p.map(i, 0, detail, 0, p.TWO_PI);
+            const x = p.cos(angle) * radius;
+            const z = p.sin(angle) * radius;
+            p.vertex(x, -height / 2, z);
+        }
+        p.endShape();
     }
     
     /**
      * Helper function to set the oscillator waveform for all voices in a PolySynth.
-     * @param {p5.PolySynth} synth - The synthesizer to modify.
-     * @param {string} waveform - The waveform type ('sine', 'triangle', 'sawtooth', 'square').
      */
     function setSynthWaveform(synth: any, waveform: string) {
         if (synth && synth.voices) {
-            // p5.PolySynth is a collection of p5.MonoSynth voices.
-            // We iterate through them to set the oscillator type for each.
             for (const voice of synth.voices) {
                 if (voice.oscillator) {
                     voice.oscillator.setType(waveform);
@@ -237,62 +358,120 @@ const sketch = (p: any) => {
         p.createCanvas(canvasContainer.clientWidth, canvasContainer.clientHeight, p.WEBGL);
         p.colorMode(p.HSB, 360, 100, 100, 100);
         
-        // Initialize and configure the separate 2D graphics layer for the UI
         uiLayer = p.createGraphics(p.width, p.height);
         uiLayer.colorMode(p.HSB, 360, 100, 100, 100);
         uiLayer.textFont(font);
         uiLayer.textSize(14);
         
-        // Initialize synthesizers
-        synths.pluck = new p5.PolySynth(undefined, 16);
-        synths.voicy = new p5.PolySynth(undefined, 16);
-        synths.pad = new p5.PolySynth(undefined, 16);
-        synths.bass = new p5.PolySynth(undefined, 16);
-        synths.bell = new p5.PolySynth(undefined, 16);
-        synths.lead = new p5.PolySynth(undefined, 16);
-        synths.sfx = new p5.PolySynth(undefined, 16);
+        // --- Initialize Synthesizers ---
+        const polySynthNames = ['303 Acid', 'Moog Bass', 'Moog Lead', 'FM Bell', 'Soft Pad', 'Pluck', '808 Cowbell'];
+        polySynthNames.forEach(name => {
+            synths[name] = new p5.PolySynth(undefined, 16);
+        });
         
-        // --- Configure Oscillator Timbre ---
-        // This is crucial for making the presets sound different.
-        setSynthWaveform(synths.pluck, 'triangle');
-        setSynthWaveform(synths.voicy, 'sawtooth');
-        setSynthWaveform(synths.pad, 'triangle'); // Softer than sawtooth, better for pads
-        setSynthWaveform(synths.bass, 'square');
-        setSynthWaveform(synths.bell, 'sine'); // Pure tone is good for bell sounds
-        setSynthWaveform(synths.lead, 'sawtooth'); // Classic bright lead sound
-        setSynthWaveform(synths.sfx, 'square'); // Good for punchy, percussive SFX
+        // --- Custom Percussion Synths ---
+        kickSynth = (() => {
+            const osc = new p5.Oscillator('sine');
+            const envelope = new p5.Envelope();
+            envelope.setRange(1.0, 0);
+            osc.amp(envelope);
+            osc.start();
+            return { osc, envelope };
+        })();
+        
+        snareSynth = (() => {
+            const noise = new p5.Noise('white');
+            const noiseEnv = new p5.Envelope();
+            noiseEnv.setRange(1.0, 0);
+            noise.amp(noiseEnv);
 
-        // Initialize and connect reverb
+            const tone = new p5.Oscillator('sine');
+            const toneEnv = new p5.Envelope();
+            toneEnv.setRange(0.7, 0);
+            tone.amp(toneEnv);
+            
+            noise.start();
+            tone.start();
+            return { noise, noiseEnv, tone, toneEnv };
+        })();
+
+        hatSynth = (() => {
+            const noise = new p5.Noise('white');
+            const envelope = new p5.Envelope();
+            const filter = new p5.HighPass();
+            filter.freq(7000);
+            noise.connect(filter);
+            envelope.setRange(0.3, 0);
+            noise.amp(envelope);
+            noise.start();
+            return { noise, envelope, filter };
+        })();
+
+
+        // --- Configure Oscillator Timbre for PolySynths ---
+        setSynthWaveform(synths['303 Acid'], 'square');
+        setSynthWaveform(synths['Moog Bass'], 'sawtooth');
+        setSynthWaveform(synths['Moog Lead'], 'sawtooth');
+        setSynthWaveform(synths['FM Bell'], 'sine');
+        setSynthWaveform(synths['Soft Pad'], 'triangle');
+        setSynthWaveform(synths['Pluck'], 'triangle');
+        setSynthWaveform(synths['808 Cowbell'], 'square');
+
+        // --- Master Audio Chain Setup: Synths -> Reverb -> Compressor -> Output ---
         reverb = new p5.Reverb();
-        Object.values(synths).forEach(synth => reverb.process(synth, 3, 2));
+        compressor = new p5.Compressor();
+
+        // Set compressor to act as a limiter to prevent clipping
+        compressor.set(
+            0.005, // attack
+            30,    // knee
+            12,    // ratio
+            -24,   // threshold (dB)
+            0.3    // release
+        );
+        
+        // Connect reverb to the compressor instead of the master output
+        reverb.connect(compressor);
+
+        // Process all sound sources through the reverb
+        Object.values(synths).forEach(synth => reverb.process(synth));
+        reverb.process(kickSynth.osc);
+        reverb.process(snareSynth.noise);
+        reverb.process(snareSynth.tone);
+        reverb.process(hatSynth.noise);
 
 
-        // --- GUI Setup using lil-gui ---
+        // --- GUI Setup ---
         gui = new GUI();
         gui.domElement.style.opacity = '0.9';
 
         const simFolder = gui.addFolder('Simulation');
         simFolder.add(params.simulation, 'bpm', 30, 120, 1).name('BPM');
         simFolder.add(params.simulation, 'maxCycle', 1, 20, 1).name('Max Cycle');
+        simFolder.add(params.simulation, 'infiniteLifespan').name('Infinite Lifespan');
+        simFolder.add({ removeLast: () => { if (cubes.length > 0) cubes.pop(); } }, 'removeLast').name('Remove Last Cube');
         simFolder.add({ reset: () => { cubes = []; } }, 'reset').name('Reset');
 
         const synthFolder = gui.addFolder('Synthesis');
+        const presetNames = ['808 Kick', '808 Snare', '808 Hat', '808 Cowbell', '303 Acid', 'Moog Bass', 'Moog Lead', 'FM Bell', 'Soft Pad', 'Pluck'];
+        synthFolder.add(params.synthesis, 'gain', 0, 100, 1).name('Gain').onChange(updateAudioParams);
         synthFolder.add(params.synthesis, 'decay', 50, 1000, 10).name('Decay').onChange(updateAudioParams);
-        synthFolder.add(params.synthesis, 'soundPreset', ['pluck', 'voicy', 'pad', 'bass', 'bell', 'lead', 'sfx']).name('Sound Preset');
-        synthFolder.add(params.synthesis, 'reverb', 0, 100, 1).name('Reverb').onChange(updateAudioParams);
+        synthFolder.add(params.synthesis, 'soundPreset', presetNames).name('Sound Preset');
+        synthFolder.add(params.synthesis, 'reverb', 0, 100, 1).name('Reverb Mix').onChange(updateAudioParams);
+        synthFolder.add(params.synthesis, 'reverbTime', 0, 100, 1).name('Reverb Time').onChange(updateAudioParams);
         
         const harmonyFolder = gui.addFolder('Harmony');
         harmonyFolder.add(params.harmony, 'baseNote', 36, 72, 1).name('Base Note (MIDI)');
         harmonyFolder.add(params.harmony, 'scale', Object.keys(SCALES)).name('Scale');
         
-        // --- Event Listeners ---
+        gui.close();
+
         document.getElementById('start-button')?.addEventListener('click', () => {
-            p.userStartAudio(); // Required to start audio context in browsers
+            p.userStartAudio();
             document.getElementById('start-overlay')?.classList.add('hidden');
         });
 
-        updateAudioParams(); // Apply initial audio parameters
-
+        updateAudioParams();
     }
     
     /**
@@ -303,26 +482,15 @@ const sketch = (p: any) => {
             audioStarted = true;
         }
         
-        // Use a dark, atmospheric background instead of pure black
         p.background(280, 10, 8);
         p.ortho(-p.width / 2, p.width / 2, -p.height / 2, p.height / 2, -2000, 2000);
         
-        // --- Improved Three-Point Lighting ---
         const lightDist = Math.max(p.width, p.height);
-
-        // A subtle ambient light to lift the darkest shadows
         p.ambientLight(280, 20, 10);
-
-        // 1. Key Light (main light source, bright, cool)
         p.pointLight(220, 30, 90, p.width / 3, -p.height / 2, lightDist);
-        
-        // 2. Fill Light (softer, secondary light to fill shadows)
         p.pointLight(300, 20, 40, -p.width / 3, p.height / 2, lightDist / 2);
-
-        // 3. Rim Light (backlight to create separation and highlights)
         p.pointLight(320, 80, 100, 0, -p.height / 3, -lightDist);
 
-        // Update and display all cubes, removing ones that have faded
         for (let i = cubes.length - 1; i >= 0; i--) {
             cubes[i].update();
             cubes[i].display();
@@ -334,23 +502,16 @@ const sketch = (p: any) => {
         const { isHorizontal, cylinderLength, cylinderRadius } = getCylinderDimensions();
         const noteCount = 12;
 
-        // Draw central cylinder
         p.push();
         if (isHorizontal) p.rotateZ(p.HALF_PI);
         p.noStroke();
-        p.colorMode(p.RGB,255)
-         //p.shader(myShader);
-        // Make the cylinder highly transparent for a "glass" or "force-field" look.
-        p.specularMaterial(155, 155,155,1); // HSB, Alpha (very low alpha for high transparency)
-        p.shininess(0); // Increase shininess for sharper highlights
-        p.cylinder(cylinderRadius, cylinderLength, 24, 1, false, false);
+        drawGradientCylinder(cylinderRadius, cylinderLength, 24);
         p.pop();
 
-        // Draw note lane lines on the cylinder
         p.push();
         if (isHorizontal) p.rotateZ(p.HALF_PI);
-        p.stroke(200, 0, 100, 40); // Fainter stroke for a subtle, "etched" look
-        p.strokeWeight(8); // Thinner lines
+        p.stroke(200, 0, 100, 40);
+        p.strokeWeight(8);
         p.noFill();
         for (let i = 0; i <= noteCount; i++) {
             const yPos = p.map(i, 0, noteCount, -cylinderLength / 2, cylinderLength / 2);
@@ -365,8 +526,7 @@ const sketch = (p: any) => {
         }
         p.pop();
 
-        // --- Draw 2D overlay using the dedicated UI layer ---
-        uiLayer.clear(); // Clear the buffer for fresh drawing
+        uiLayer.clear();
         uiLayer.fill(200, 0, 100, 100);
         uiLayer.noStroke();
 
@@ -395,7 +555,6 @@ const sketch = (p: any) => {
             }
         }
         
-        // Draw the UI layer onto the main canvas
         p.image(uiLayer, -p.width / 2, -p.height / 2);
     };
     
@@ -403,19 +562,17 @@ const sketch = (p: any) => {
         const canvasContainer = document.getElementById('canvas-container')!;
         p.resizeCanvas(canvasContainer.clientWidth, canvasContainer.clientHeight);
         
-        // Resize the UI layer and re-apply settings
         uiLayer.resizeCanvas(p.width, p.height);
         uiLayer.colorMode(p.HSB, 360, 100, 100, 100);
         uiLayer.textFont(font);
         uiLayer.textSize(14);
 
-        cubes = []; // Clear cubes on resize to avoid positioning issues
+        cubes = [];
     };
 
     p.mouseClicked = () => {
         if (!audioStarted) return;
 
-        // Prevent click-through from the GUI
         const guiRect = gui.domElement.getBoundingClientRect();
         if (
             p.mouseX >= guiRect.left &&
@@ -423,7 +580,7 @@ const sketch = (p: any) => {
             p.mouseY >= guiRect.top &&
             p.mouseY <= guiRect.bottom
         ) {
-            return; // Click was inside the GUI, so don't spawn a cube.
+            return;
         }
 
         const { isHorizontal, cylinderLength, cylinderRadius } = getCylinderDimensions();
@@ -455,6 +612,4 @@ const sketch = (p: any) => {
     };
 };
 
-// Instantiate the p5 sketch using the global p5 constructor
-// and attach it to the container div
 new p5(sketch, document.getElementById('canvas-container')!);
