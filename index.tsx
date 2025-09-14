@@ -37,9 +37,11 @@ const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 
 
 // --- p5.js Sketch ---
 
+
+
 const sketch = (p: any) => {
     let cubes: Cube[] = [];
-    let synths: { pluck?: any, voicy?: any } = {};
+    let synths: { pluck?: any, voicy?: any, pad?: any, bass?: any, bell?: any, lead?: any, sfx?: any } = {};
     let reverb: any;
     let audioStarted = false;
     let font: string;
@@ -151,10 +153,11 @@ const sketch = (p: any) => {
             const octave = Math.floor(midiNote / 12) - 1;
             const note = `${NOTE_NAMES[noteIndex]}${octave}`;
             
-            const synth = params.synthesis.soundPreset === 'pluck' ? synths.pluck : synths.voicy;
+            const synth = synths[params.synthesis.soundPreset as keyof typeof synths];
             if (synth) {
-                const decaySeconds = params.synthesis.decay / 1000;
-                synth.play(note, 0.5, 0, decaySeconds);
+                // Decay is now set via updateAudioParams, so we just need a duration.
+                // The ADSR release phase will handle the fade out.
+                synth.play(note, 0.5, 0, 0.1);
             }
         }
 
@@ -187,14 +190,38 @@ const sketch = (p: any) => {
      * Applies current audio synthesis parameters to the p5.sound objects.
      */
     function updateAudioParams() {
-        if (!reverb || !synths.pluck || !synths.voicy) return;
+        if (!reverb) return;
         reverb.drywet(params.synthesis.reverb / 100);
         
         const decaySeconds = params.synthesis.decay / 1000;
-        synths.pluck.setADSR(0.01, decaySeconds, 0, 0.1);
-        synths.voicy.setADSR(0.2, decaySeconds, 0.2, 0.5);
+
+        // Set ADSR envelopes for each synth
+        if (synths.pluck) synths.pluck.setADSR(0.01, decaySeconds, 0, 0.1);
+        if (synths.voicy) synths.voicy.setADSR(0.2, decaySeconds, 0.2, 0.5);
+        if (synths.pad) synths.pad.setADSR(0.8, decaySeconds, 0.5, 0.8);
+        if (synths.bass) synths.bass.setADSR(0.02, decaySeconds * 0.5, 0.1, 0.2);
+        if (synths.bell) synths.bell.setADSR(0.01, decaySeconds * 2, 0, 0.1);
+        if (synths.lead) synths.lead.setADSR(0.05, decaySeconds, 0.6, 0.4);
+        if (synths.sfx) synths.sfx.setADSR(0.001, decaySeconds * 0.2, 0, 0.1);
     }
     
+    /**
+     * Helper function to set the oscillator waveform for all voices in a PolySynth.
+     * @param {p5.PolySynth} synth - The synthesizer to modify.
+     * @param {string} waveform - The waveform type ('sine', 'triangle', 'sawtooth', 'square').
+     */
+    function setSynthWaveform(synth: any, waveform: string) {
+        if (synth && synth.voices) {
+            // p5.PolySynth is a collection of p5.MonoSynth voices.
+            // We iterate through them to set the oscillator type for each.
+            for (const voice of synth.voices) {
+                if (voice.oscillator) {
+                    voice.oscillator.setType(waveform);
+                }
+            }
+        }
+    }
+
     /**
      * p5.js preload function. Ensures assets are loaded before setup.
      */
@@ -216,12 +243,29 @@ const sketch = (p: any) => {
         uiLayer.textFont(font);
         uiLayer.textSize(14);
         
-        // Initialize synthesizers and reverb using the global p5 object
+        // Initialize synthesizers
         synths.pluck = new p5.PolySynth(undefined, 16);
         synths.voicy = new p5.PolySynth(undefined, 16);
+        synths.pad = new p5.PolySynth(undefined, 16);
+        synths.bass = new p5.PolySynth(undefined, 16);
+        synths.bell = new p5.PolySynth(undefined, 16);
+        synths.lead = new p5.PolySynth(undefined, 16);
+        synths.sfx = new p5.PolySynth(undefined, 16);
+        
+        // --- Configure Oscillator Timbre ---
+        // This is crucial for making the presets sound different.
+        setSynthWaveform(synths.pluck, 'triangle');
+        setSynthWaveform(synths.voicy, 'sawtooth');
+        setSynthWaveform(synths.pad, 'triangle'); // Softer than sawtooth, better for pads
+        setSynthWaveform(synths.bass, 'square');
+        setSynthWaveform(synths.bell, 'sine'); // Pure tone is good for bell sounds
+        setSynthWaveform(synths.lead, 'sawtooth'); // Classic bright lead sound
+        setSynthWaveform(synths.sfx, 'square'); // Good for punchy, percussive SFX
+
+        // Initialize and connect reverb
         reverb = new p5.Reverb();
-        reverb.process(synths.pluck, 3, 2);
-        reverb.process(synths.voicy, 3, 2);
+        Object.values(synths).forEach(synth => reverb.process(synth, 3, 2));
+
 
         // --- GUI Setup using lil-gui ---
         gui = new GUI();
@@ -234,7 +278,7 @@ const sketch = (p: any) => {
 
         const synthFolder = gui.addFolder('Synthesis');
         synthFolder.add(params.synthesis, 'decay', 50, 1000, 10).name('Decay').onChange(updateAudioParams);
-        synthFolder.add(params.synthesis, 'soundPreset', ['pluck', 'voicy']).name('Sound Preset');
+        synthFolder.add(params.synthesis, 'soundPreset', ['pluck', 'voicy', 'pad', 'bass', 'bell', 'lead', 'sfx']).name('Sound Preset');
         synthFolder.add(params.synthesis, 'reverb', 0, 100, 1).name('Reverb').onChange(updateAudioParams);
         
         const harmonyFolder = gui.addFolder('Harmony');
@@ -248,7 +292,8 @@ const sketch = (p: any) => {
         });
 
         updateAudioParams(); // Apply initial audio parameters
-    };
+
+    }
     
     /**
      * p5.js draw function. Runs on every frame.
@@ -258,12 +303,24 @@ const sketch = (p: any) => {
             audioStarted = true;
         }
         
-        p.background(0);
+        // Use a dark, atmospheric background instead of pure black
+        p.background(280, 10, 8);
         p.ortho(-p.width / 2, p.width / 2, -p.height / 2, p.height / 2, -2000, 2000);
         
-        p.ambientLight(50);
-        p.pointLight(300, 100, 100, 0, -p.height, 0);
-        p.pointLight(240, 100, 100, 0, p.height, 0);
+        // --- Improved Three-Point Lighting ---
+        const lightDist = Math.max(p.width, p.height);
+
+        // A subtle ambient light to lift the darkest shadows
+        p.ambientLight(280, 20, 10);
+
+        // 1. Key Light (main light source, bright, cool)
+        p.pointLight(220, 30, 90, p.width / 3, -p.height / 2, lightDist);
+        
+        // 2. Fill Light (softer, secondary light to fill shadows)
+        p.pointLight(300, 20, 40, -p.width / 3, p.height / 2, lightDist / 2);
+
+        // 3. Rim Light (backlight to create separation and highlights)
+        p.pointLight(320, 80, 100, 0, -p.height / 3, -lightDist);
 
         // Update and display all cubes, removing ones that have faded
         for (let i = cubes.length - 1; i >= 0; i--) {
@@ -281,16 +338,19 @@ const sketch = (p: any) => {
         p.push();
         if (isHorizontal) p.rotateZ(p.HALF_PI);
         p.noStroke();
-        p.specularMaterial(280, 80, 30, 40);
-        p.shininess(50);
+        p.colorMode(p.RGB,255)
+         //p.shader(myShader);
+        // Make the cylinder highly transparent for a "glass" or "force-field" look.
+        p.specularMaterial(155, 155,155,1); // HSB, Alpha (very low alpha for high transparency)
+        p.shininess(0); // Increase shininess for sharper highlights
         p.cylinder(cylinderRadius, cylinderLength, 24, 1, false, false);
         p.pop();
 
         // Draw note lane lines on the cylinder
         p.push();
         if (isHorizontal) p.rotateZ(p.HALF_PI);
-        p.stroke(200, 0, 100, 50);
-        p.strokeWeight(2);
+        p.stroke(200, 0, 100, 40); // Fainter stroke for a subtle, "etched" look
+        p.strokeWeight(8); // Thinner lines
         p.noFill();
         for (let i = 0; i <= noteCount; i++) {
             const yPos = p.map(i, 0, noteCount, -cylinderLength / 2, cylinderLength / 2);
@@ -325,7 +385,7 @@ const sketch = (p: any) => {
             uiLayer.textAlign(p.CENTER, p.TOP);
             for (let i = 0; i < noteCount; i++) {
                 const screenX = p.map(i + 0.5, 0, noteCount, p.width/2 - cylinderLength/2, p.width/2 + cylinderLength/2);
-                uiLayer.text(getNoteNameForLane(i), screenX, 20);
+                uiLayer.text(getNoteNameForLane(i), screenX, 50);
             }
         } else {
             uiLayer.textAlign(p.LEFT, p.CENTER);
