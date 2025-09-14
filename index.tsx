@@ -13,7 +13,7 @@ declare var p5: any;
  */
 const params = {
     simulation: { bpm: 45, maxCycle: 9, infiniteLifespan: false },
-    synthesis: { gain: 80, decay: 200, soundPreset: '303 Acid', reverb: 48, reverbTime: 30 },
+    synthesis: { gain: 70, decay: 200, soundPreset: '303 Acid', reverb: 48, reverbTime: 30 },
     harmony: { baseNote: 48, scale: 'Pentatonic' },
 };
 
@@ -44,7 +44,7 @@ const sketch = (p: any) => {
     let cubes: Cube[] = [];
     let synths: { [key: string]: any } = {};
     let kickSynth: any, snareSynth: any, hatSynth: any;
-    let reverb: any, compressor: any;
+    let reverb: any, compressor: any, reverbWetGain: any;
     let audioStarted = false;
     let font: string;
     let uiLayer: any; // Off-screen buffer for 2D UI elements
@@ -195,7 +195,7 @@ const sketch = (p: any) => {
                         const freq1 = this.p.midiToFreq(baseMidiNote);
                         // The second frequency is a perfect fifth higher, characteristic of the 808 cowbell
                         const freq2 = freq1 * 1.5; 
-                        synths['808 Cowbell'].play(freq1, gain * 0.8, 0, 0.05);
+                        synths['808 Cowbell'].play(freq1, gain * 0.6, 0, 0.05);
                         synths['808 Cowbell'].play(freq2, gain * 0.5, 0, 0.05);
                     }
                     break;
@@ -249,18 +249,28 @@ const sketch = (p: any) => {
     }
 
     /**
-     * Applies current audio synthesis parameters to the p5.sound objects.
+     * Updates reverb mix smoothly by ramping the gain on the wet signal path.
      */
-    function updateAudioParams() {
-        if (!reverb) return;
+    function updateReverbMix() {
+        if (!reverbWetGain) return;
+        const wetLevel = params.synthesis.reverb / 100;
+        reverbWetGain.amp(wetLevel, 0.05); // Ramp gain over 50ms
+    }
 
-        // --- Reverb and Master Effects ---
+    /**
+     * Updates reverb time. Called on slider release to avoid audio artifacts.
+     */
+    function updateReverbTime() {
+        if (!reverb) return;
         const reverbTimeSeconds = p.map(params.synthesis.reverbTime, 0, 100, 0.01, 8);
         const decayRate = 1.5;
         reverb.set(reverbTimeSeconds, decayRate, false);
-        reverb.drywet(params.synthesis.reverb / 100);
-        
-        // --- Synth-specific Parameters ---
+    }
+
+    /**
+     * Updates gain and decay envelopes for all synthesizers.
+     */
+    function updateSynthEnvelopes() {
         const gain = params.synthesis.gain / 100;
         const decaySeconds = params.synthesis.decay / 1000;
 
@@ -276,12 +286,12 @@ const sketch = (p: any) => {
         // --- Custom Synth Envelope Configurations ---
         if (kickSynth) {
             kickSynth.envelope.setADSR(0.001, decaySeconds * 0.8, 0.01, 0.1);
-            kickSynth.envelope.setRange(gain * 1.0, 0);
+            kickSynth.envelope.setRange(gain * 0.8, 0);
         }
         if (snareSynth) {
             snareSynth.noiseEnv.setADSR(0.001, decaySeconds * 0.2, 0, 0.01);
             snareSynth.toneEnv.setADSR(0.001, decaySeconds * 0.1, 0, 0.01);
-            snareSynth.noiseEnv.setRange(gain * 1.0, 0);
+            snareSynth.noiseEnv.setRange(gain * 0.7, 0);
             snareSynth.toneEnv.setRange(gain * 0.7, 0);
         }
         if (hatSynth) {
@@ -417,28 +427,35 @@ const sketch = (p: any) => {
         setSynthWaveform(synths['Pluck'], 'triangle');
         setSynthWaveform(synths['808 Cowbell'], 'square');
 
-        // --- Master Audio Chain Setup: Synths -> Reverb -> Compressor -> Output ---
+        // --- Master Audio Chain Setup for Smooth Reverb Control ---
         reverb = new p5.Reverb();
         compressor = new p5.Compressor();
+        reverbWetGain = new p5.Gain(); // Gain node to control the wet signal level
 
         // Set compressor to act as a limiter to prevent clipping
-        compressor.set(
-            0.005, // attack
-            30,    // knee
-            12,    // ratio
-            -24,   // threshold (dB)
-            0.3    // release
-        );
+        compressor.set(0.001, 30, 12, -24, 0.3);
         
-        // Connect reverb to the compressor instead of the master output
-        reverb.connect(compressor);
+        // Set reverb to output only the wet signal
+        reverb.drywet(1);
 
-        // Process all sound sources through the reverb
-        Object.values(synths).forEach(synth => reverb.process(synth));
-        reverb.process(kickSynth.osc);
-        reverb.process(snareSynth.noise);
-        reverb.process(snareSynth.tone);
-        reverb.process(hatSynth.noise);
+        // Create the wet signal path: Reverb -> Wet Gain -> Compressor
+        reverb.connect(reverbWetGain);
+        reverbWetGain.connect(compressor);
+
+        // Function to route a sound source to both dry and wet paths
+        const routeToEffects = (source: any) => {
+            // Dry path: source -> compressor
+            source.connect(compressor);
+            // Wet path: source -> reverb
+            reverb.process(source); // (same as source.connect(reverb))
+        };
+
+        // Route all sound sources
+        Object.values(synths).forEach(routeToEffects);
+        routeToEffects(kickSynth.osc);
+        routeToEffects(snareSynth.noise);
+        routeToEffects(snareSynth.tone);
+        routeToEffects(hatSynth.noise);
 
 
         // --- GUI Setup ---
@@ -454,11 +471,11 @@ const sketch = (p: any) => {
 
         const synthFolder = gui.addFolder('Synthesis');
         const presetNames = ['808 Kick', '808 Snare', '808 Hat', '808 Cowbell', '303 Acid', 'Moog Bass', 'Moog Lead', 'FM Bell', 'Soft Pad', 'Pluck'];
-        synthFolder.add(params.synthesis, 'gain', 0, 100, 1).name('Gain').onChange(updateAudioParams);
-        synthFolder.add(params.synthesis, 'decay', 50, 1000, 10).name('Decay').onChange(updateAudioParams);
+        synthFolder.add(params.synthesis, 'gain', 0, 100, 1).name('Gain').onChange(updateSynthEnvelopes);
+        synthFolder.add(params.synthesis, 'decay', 50, 1000, 10).name('Decay').onChange(updateSynthEnvelopes);
         synthFolder.add(params.synthesis, 'soundPreset', presetNames).name('Sound Preset');
-        synthFolder.add(params.synthesis, 'reverb', 0, 100, 1).name('Reverb Mix').onChange(updateAudioParams);
-        synthFolder.add(params.synthesis, 'reverbTime', 0, 100, 1).name('Reverb Time').onChange(updateAudioParams);
+        synthFolder.add(params.synthesis, 'reverb', 0, 100, 1).name('Reverb Mix').onChange(updateReverbMix);
+        synthFolder.add(params.synthesis, 'reverbTime', 0, 100, 1).name('Reverb Time').onFinishChange(updateReverbTime);
         
         const harmonyFolder = gui.addFolder('Harmony');
         harmonyFolder.add(params.harmony, 'baseNote', 36, 72, 1).name('Base Note (MIDI)');
@@ -466,12 +483,32 @@ const sketch = (p: any) => {
         
         gui.close();
 
-        document.getElementById('start-button')?.addEventListener('click', () => {
-            p.userStartAudio();
-            document.getElementById('start-overlay')?.classList.add('hidden');
-        });
+        const startButton = document.getElementById('start-button');
+        const startOverlay = document.getElementById('start-overlay');
+        let experienceStarted = false;
 
-        updateAudioParams();
+        const startExperience = (event: MouseEvent | TouchEvent) => {
+            event.preventDefault();
+            if (experienceStarted) return;
+            experienceStarted = true;
+
+            p.userStartAudio();
+            startOverlay?.classList.add('hidden');
+
+            // Clean up listeners
+            startButton?.removeEventListener('click', startExperience);
+            startButton?.removeEventListener('touchend', startExperience);
+        };
+
+        if (startButton) {
+            startButton.addEventListener('click', startExperience);
+            startButton.addEventListener('touchend', startExperience);
+        }
+
+        // Initialize all audio parameters
+        updateReverbMix();
+        updateReverbTime();
+        updateSynthEnvelopes();
     }
     
     /**
