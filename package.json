@@ -9,10 +9,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "lil-gui": "0.19"
+    "lil-gui": "0.19",
+    "smplr": "0.6.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
+    
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
   }
