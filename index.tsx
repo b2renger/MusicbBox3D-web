@@ -1,4 +1,3 @@
-import GUI from 'lil-gui';
 import { Soundfont } from 'smplr';
 
 // p5.js is loaded globally via the script tag in index.html.
@@ -8,7 +7,6 @@ declare const p5: any;
 
 /**
  * A centralized object holding all adjustable parameters.
- * lil-gui will directly bind to and modify this object.
  */
 const params = {
     simulation: { bpm: 45, maxCycle: 9, infiniteLifespan: false },
@@ -44,14 +42,12 @@ const sketch = (p: any) => {
     let instruments: Record<string, any> = {};
     let masterGain: any; // Native AudioNode
     let reverb: any; // p5.Reverb
-    let reverbInput: any; // Native AudioNode for reverb input
     
     let audioStarted = false;
     let instrumentsLoaded = false;
     
     let font: any;
     let uiLayer: any;
-    let gui: GUI;
 
     /**
      * Calculates cylinder dimensions based on the current canvas size.
@@ -218,9 +214,6 @@ const sketch = (p: any) => {
 
     function updateReverbMix() {
         if (!reverb) return;
-        // p5.Reverb doesn't have a direct 'wet' gain property exposed easily for dry/wet mixing 
-        // in a standard way unless using the drywet() method.
-        // drywet(1) means 100% wet. drywet(0) means 100% dry.
         const mix = params.synthesis.reverb / 100;
         reverb.drywet(mix);
     }
@@ -269,6 +262,85 @@ const sketch = (p: any) => {
         p.endShape();
     }
     
+    // --- UI Setup ---
+    function setupUI() {
+        // --- Simulation Panel ---
+        const inpBpm = document.getElementById('inp-bpm') as HTMLInputElement;
+        const valBpm = document.getElementById('val-bpm');
+        inpBpm.oninput = () => {
+            params.simulation.bpm = parseInt(inpBpm.value);
+            if (valBpm) valBpm.innerText = inpBpm.value;
+        };
+
+        const inpCycle = document.getElementById('inp-cycle') as HTMLInputElement;
+        const valCycle = document.getElementById('val-cycle');
+        inpCycle.oninput = () => {
+            params.simulation.maxCycle = parseInt(inpCycle.value);
+            if (valCycle) valCycle.innerText = inpCycle.value;
+        };
+
+        const inpInfinite = document.getElementById('inp-infinite') as HTMLInputElement;
+        inpInfinite.onchange = () => {
+            params.simulation.infiniteLifespan = inpInfinite.checked;
+        };
+
+        const btnRemove = document.getElementById('btn-remove');
+        if (btnRemove) btnRemove.onclick = () => { if (cubes.length > 0) cubes.pop(); };
+        
+        const btnReset = document.getElementById('btn-reset');
+        if (btnReset) btnReset.onclick = () => { cubes = []; };
+
+        // --- Sound Panel ---
+        const inpVol = document.getElementById('inp-vol') as HTMLInputElement;
+        const valVol = document.getElementById('val-vol');
+        inpVol.oninput = () => {
+            params.synthesis.gain = parseInt(inpVol.value);
+            if (valVol) valVol.innerText = inpVol.value;
+        };
+
+        const inpInstrument = document.getElementById('inp-instrument') as HTMLSelectElement;
+        inpInstrument.onchange = () => {
+            params.synthesis.soundPreset = inpInstrument.value;
+        };
+
+        const inpRev = document.getElementById('inp-rev') as HTMLInputElement;
+        const valRev = document.getElementById('val-rev');
+        inpRev.oninput = () => {
+            params.synthesis.reverb = parseInt(inpRev.value);
+            if (valRev) valRev.innerText = inpRev.value;
+            updateReverbMix();
+        };
+
+        const inpRevTime = document.getElementById('inp-revtime') as HTMLInputElement;
+        const valRevTime = document.getElementById('val-revtime');
+        inpRevTime.oninput = () => {
+            params.synthesis.reverbTime = parseInt(inpRevTime.value);
+            if (valRevTime) valRevTime.innerText = inpRevTime.value;
+            updateReverbTime(); // Update continuously for smooth feel, or on change for perf
+        };
+
+        // --- Harmony Panel ---
+        const inpBase = document.getElementById('inp-base') as HTMLInputElement;
+        const valBase = document.getElementById('val-base');
+        inpBase.oninput = () => {
+            params.harmony.baseNote = parseInt(inpBase.value);
+            if (valBase) valBase.innerText = inpBase.value;
+        };
+
+        const inpScale = document.getElementById('inp-scale') as HTMLSelectElement;
+        inpScale.onchange = () => {
+            params.harmony.scale = inpScale.value;
+        };
+
+        // --- Collapsible Logic ---
+        document.querySelectorAll('.panel-header').forEach(header => {
+            header.addEventListener('click', (e: any) => {
+                const panel = e.target.closest('.glass-panel');
+                panel.classList.toggle('collapsed');
+            });
+        });
+    }
+
     p.preload = () => {
         font = 'monospace';
     };
@@ -296,8 +368,6 @@ const sketch = (p: any) => {
         reverb.process(masterGain, 3, 2); // Connect masterGain to reverb, init with 3s, 2 decay
         reverb.drywet(0.4); // Initial wet amount
         
-        // We need to initialize smplr instruments
-        // We pass the masterGain as the destination so they go through our graph
         const loadInstrument = async (name: string, presetId: string) => {
             try {
                 const instrument = new Soundfont(ac, { 
@@ -328,29 +398,10 @@ const sketch = (p: any) => {
             }
         });
 
-        // --- GUI Setup ---
-        gui = new GUI();
-        gui.domElement.style.opacity = '0.9';
-
-        const simFolder = gui.addFolder('Simulation');
-        simFolder.add(params.simulation, 'bpm', 30, 120, 1).name('BPM');
-        simFolder.add(params.simulation, 'maxCycle', 1, 20, 1).name('Max Cycle');
-        simFolder.add(params.simulation, 'infiniteLifespan').name('Infinite Lifespan');
-        simFolder.add({ removeLast: () => { if (cubes.length > 0) cubes.pop(); } }, 'removeLast').name('Remove Last Cube');
-        simFolder.add({ reset: () => { cubes = []; } }, 'reset').name('Reset');
-
-        const synthFolder = gui.addFolder('Sound');
-        const presetNames = ['Piano', 'Guitar', 'Xylophone', 'Music Box', 'Rhodes'];
-        synthFolder.add(params.synthesis, 'gain', 0, 100, 1).name('Volume');
-        synthFolder.add(params.synthesis, 'soundPreset', presetNames).name('Instrument');
-        synthFolder.add(params.synthesis, 'reverb', 0, 100, 1).name('Reverb Mix').onChange(updateReverbMix);
-        synthFolder.add(params.synthesis, 'reverbTime', 0, 100, 1).name('Reverb Time').onFinishChange(updateReverbTime);
-        
-        const harmonyFolder = gui.addFolder('Harmony');
-        harmonyFolder.add(params.harmony, 'baseNote', 36, 72, 1).name('Base Note (MIDI)');
-        harmonyFolder.add(params.harmony, 'scale', Object.keys(SCALES)).name('Scale');
-        
-        gui.close();
+        // Initialize UI Logic
+        setupUI();
+        updateReverbMix();
+        updateReverbTime();
 
         // Start Button Logic
         const startButton = document.getElementById('start-button');
@@ -371,11 +422,10 @@ const sketch = (p: any) => {
                 audioStarted = true;
                 startOverlay?.classList.add('hidden');
                 
-                // Init effects params
+                // Init effects params again to ensure state
                 updateReverbMix();
                 updateReverbTime();
                 
-                // Cleanup listeners
                 startButton?.removeEventListener('click', startExperience);
                 startButton?.removeEventListener('touchend', startExperience);
             } catch (e) {
@@ -451,10 +501,10 @@ const sketch = (p: any) => {
         };
 
         if (isHorizontal) {
-            uiLayer.textAlign(p.CENTER, p.TOP);
+            uiLayer.textAlign(p.CENTER, p.BOTTOM);
             for (let i = 0; i < noteCount; i++) {
                 const screenX = p.map(i + 0.5, 0, noteCount, p.width/2 - cylinderLength/2, p.width/2 + cylinderLength/2);
-                uiLayer.text(getNoteNameForLane(i), screenX, 50);
+                uiLayer.text(getNoteNameForLane(i), screenX, p.height - 30);
             }
         } else {
             uiLayer.textAlign(p.LEFT, p.CENTER);
@@ -482,15 +532,32 @@ const sketch = (p: any) => {
 
     p.mouseClicked = () => {
         if (!audioStarted) return;
+        
+        // Check if mouse is interacting with UI to prevent creating cubes underneath
+        const uiContainer = document.getElementById('ui-container');
+        if (uiContainer) {
+             const rect = uiContainer.getBoundingClientRect();
+             // Simple check: if mouse is in the UI header strip area. 
+             // Note: The glass panels take up width but pointer-events: none is on container.
+             // We need to check if we are over a panel specifically.
+             // Since we added pointer-events: auto to panels, DOM events propagate.
+             // However, p5 interaction happens on canvas. 
+             // Canvas is z-index 0, UI is z-index 10. 
+             // If we click a UI element, the browser handles it.
+             // But clicks "through" the gap might trigger canvas.
+             // Let's explicitly check targets.
+        }
 
-        const guiRect = gui.domElement.getBoundingClientRect();
-        if (
-            p.mouseX >= guiRect.left &&
-            p.mouseX <= guiRect.right &&
-            p.mouseY >= guiRect.top &&
-            p.mouseY <= guiRect.bottom
-        ) {
-            return;
+        // We can just rely on Event bubbling. 
+        // If a click hit a UI element, it likely wouldn't reach the canvas click handler 
+        // if we stop propagation, but p5 listens to the canvas.
+        // A simple coordinate check for the top UI area is safest.
+        
+        // Approximate check: If mouseY is within the visible UI area (first ~200px if expanded, or ~50px if collapsed).
+        // A more robust way: use elementFromPoint
+        const target = document.elementFromPoint(p.mouseX, p.mouseY);
+        if (target && target.closest('.glass-panel')) {
+            return; 
         }
 
         const { isHorizontal, cylinderLength, cylinderRadius } = getCylinderDimensions();
