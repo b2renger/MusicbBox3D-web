@@ -125,7 +125,8 @@ const sketch = (p: any) => {
                 if (this.bounceCount >= params.simulation.maxCycle) {
                     this.opacity = 0;
                 } else {
-                    this.opacity = this.p.map(this.bounceCount, 0, params.simulation.maxCycle, 100, 30);
+                    // Map opacity from 100 down to 0 based on how many cycles have passed
+                    this.opacity = this.p.map(this.bounceCount, 0, params.simulation.maxCycle, 100, 0);
                 }
                 this.opacity = this.p.max(this.opacity, 0);
             }
@@ -382,20 +383,25 @@ const sketch = (p: any) => {
             }
         };
 
-        // Load Piano, Guitar, Xylophone, Music Box, Rhodes
-        Promise.all([
-            loadInstrument('Piano', 'acoustic_grand_piano'),
-            loadInstrument('Guitar', 'acoustic_guitar_nylon'),
-            loadInstrument('Xylophone', 'xylophone'),
-            loadInstrument('Music Box', 'music_box'),
-            loadInstrument('Rhodes', 'electric_piano_1')
-        ]).then(() => {
+        // Optimization: Load the default 'Piano' first to unlock UI quickly.
+        // Other instruments load in the background.
+        loadInstrument('Piano', 'acoustic_grand_piano').then(() => {
             instrumentsLoaded = true;
             const startBtn = document.getElementById('start-button');
             if (startBtn) {
                 startBtn.textContent = "Tap to Start";
                 startBtn.removeAttribute('disabled');
             }
+            
+            // Load remaining instruments in background
+            Promise.all([
+                loadInstrument('Guitar', 'acoustic_guitar_nylon'),
+                loadInstrument('Xylophone', 'xylophone'),
+                loadInstrument('Music Box', 'music_box'),
+                loadInstrument('Rhodes', 'electric_piano_1')
+            ]).then(() => {
+                console.log("All instruments loaded");
+            });
         });
 
         // Initialize UI Logic
@@ -415,6 +421,7 @@ const sketch = (p: any) => {
 
         const startExperience = async (event: any) => {
             event.preventDefault();
+            // Start audio if piano is loaded; others might still be loading which is fine.
             if (audioStarted || !instrumentsLoaded) return;
             
             try {
