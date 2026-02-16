@@ -1,23 +1,14 @@
 import { Soundfont } from 'smplr';
 
 // p5.js is loaded globally via the script tag in index.html.
-declare const p5: any;
 
-// --- Global Parameters and Constants ---
-
-/**
- * A centralized object holding all adjustable parameters.
- */
 const params = {
     simulation: { bpm: 45, maxCycle: 9, infiniteLifespan: false },
     synthesis: { gain: 70, soundPreset: 'Piano', reverb: 40, reverbTime: 40 },
     harmony: { baseNote: 48, scale: 'Pentatonic' },
 };
 
-/**
- * A dictionary mapping scale names to their interval patterns in semitones.
- */
-const SCALES: Record<string, number[]> = {
+const SCALES = {
     Major: [0, 2, 4, 5, 7, 9, 11],
     Minor: [0, 2, 3, 5, 7, 8, 10],
     Pentatonic: [0, 2, 4, 7, 9],
@@ -28,30 +19,21 @@ const SCALES: Record<string, number[]> = {
     HarmonicMinor: [0, 2, 3, 5, 7, 8, 11],
 };
 
-/**
- * An array of note names for converting MIDI numbers to musical notation.
- */
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 
-// --- p5.js Sketch ---
-
-const sketch = (p: any) => {
-    let cubes: Cube[] = [];
+const sketch = (p) => {
+    let cubes = [];
     
-    // Audio objects
-    let instruments: Record<string, any> = {};
-    let masterGain: any; // Native AudioNode
-    let reverb: any; // p5.Reverb
+    let instruments = {};
+    let masterGain; 
+    let reverb; 
     
     let audioStarted = false;
     let instrumentsLoaded = false;
     
-    let font: any;
-    let uiLayer: any;
+    let font;
+    let uiLayer;
 
-    /**
-     * Calculates cylinder dimensions based on the current canvas size.
-     */
     function getCylinderDimensions() {
         const isHorizontal = p.width > p.height;
         const cylinderLength = isHorizontal ? p.width * 0.9 : p.height * 0.9;
@@ -59,23 +41,8 @@ const sketch = (p: any) => {
         return { isHorizontal, cylinderLength, cylinderRadius };
     }
 
-    /**
-     * @class Cube - Represents a single rotating, sound-producing cube.
-     */
     class Cube {
-        p: any;
-        size: number;
-        radius: number;
-        len: number;
-        startAngle: number;
-        angle: number;
-        lastAngle: number;
-        hue: number;
-        bounceCount: number;
-        opacity: number;
-        glow: number;
-
-        constructor(lenVal: number) {
+        constructor(lenVal) {
             this.p = p;
             this.size = 30;
             const { isHorizontal, cylinderRadius } = getCylinderDimensions();
@@ -111,7 +78,6 @@ const sketch = (p: any) => {
             const lastAdjustedAngle = this.lastAngle - angleOffset;
             const adjustedAngle = this.angle - angleOffset;
 
-            // Trigger detection logic based on full revolutions
             const oldRevolutions = Math.floor(lastAdjustedAngle / this.p.TWO_PI);
             const newRevolutions = Math.floor(adjustedAngle / this.p.TWO_PI);
 
@@ -120,26 +86,20 @@ const sketch = (p: any) => {
                 this.triggerNote();
             }
             
-            // Opacity Logic
             if (params.simulation.infiniteLifespan) {
                 this.opacity = 100;
             } else {
-                // Calculate continuous progress based on total angle traversed
                 const totalAngle = this.angle - this.startAngle;
-                // How many total revolutions (float) have we done?
                 const currentRevolutions = totalAngle / this.p.TWO_PI;
-                // Calculate lifecycle progress (0.0 to 1.0)
                 const lifeProgress = currentRevolutions / params.simulation.maxCycle;
 
                 if (lifeProgress >= 1.0) {
                     this.opacity = 0;
                 } else {
-                    // Smoothly fade from 100 to 0
                     this.opacity = (1.0 - lifeProgress) * 100;
                 }
             }
 
-            // Glow decay
             if (this.glow > 0.01) {
                 this.glow *= 0.92;
             } else {
@@ -149,8 +109,6 @@ const sketch = (p: any) => {
 
         triggerNote() {
             this.glow = 1.0;
-
-            // Common calculations for note placement
             const { cylinderLength } = getCylinderDimensions();
             const normalizedPos = this.p.map(this.len, -cylinderLength / 2, cylinderLength / 2, 0, 1);
             const laneIndex = this.p.floor(this.p.constrain(normalizedPos * 12, 0, 11));
@@ -161,7 +119,6 @@ const sketch = (p: any) => {
             const octaveOffset = Math.floor(laneIndex / numNotesInScale);
             const scaleInterval = scaleIntervals[noteInScaleIndex];
             const baseMidiNote = params.harmony.baseNote + scaleInterval + (octaveOffset * 12);
-            // Ensure integer and valid range
             let midiNote = Math.floor(baseMidiNote);
             midiNote = this.p.constrain(midiNote, 21, 108);
             
@@ -171,12 +128,10 @@ const sketch = (p: any) => {
             const instrument = instruments[preset];
             if (instrument && audioStarted) {
                 try {
-                    // Velocity mapping could be dynamic, but fixed is fine for this UI
-                    // Ensure note is an integer MIDI number
                     instrument.start({ 
                         note: midiNote, 
                         velocity: Math.floor(gain * 100), 
-                        duration: 2.0 // Allow some ring out
+                        duration: 2.0 
                     });
                 } catch (e) {
                     console.warn("Error playing note:", e);
@@ -206,11 +161,9 @@ const sketch = (p: any) => {
             this.p.emissiveMaterial(this.hue, saturation, brightness, this.opacity);
             this.p.box(currentSize);
 
-            // --- Visual Highlight ---
             if (this.glow > 0.01) {
                 this.p.push();
                 const highlightOpacity = this.p.map(this.glow, 0, 1, 0, 80);
-                // Modulate highlight opacity by the cube's overall opacity so it fades too
                 const combinedHighlightOpacity = (highlightOpacity * this.opacity) / 100;
                 
                 const highlightSize = currentSize * 1.25;
@@ -238,7 +191,7 @@ const sketch = (p: any) => {
         reverb.set(reverbTimeSeconds, decayRate);
     }
 
-    function drawGradientCylinder(radius: any, height: any, detail: any) {
+    function drawGradientCylinder(radius, height, detail) {
         const colorBottom = p.color(260, 40, 30, 80);
         const colorTop = p.color(290, 60, 85, 80);
 
@@ -275,24 +228,23 @@ const sketch = (p: any) => {
         p.endShape();
     }
     
-    // --- UI Setup ---
     function setupUI() {
         // --- Simulation Panel ---
-        const inpBpm = document.getElementById('inp-bpm') as HTMLInputElement;
+        const inpBpm = document.getElementById('inp-bpm');
         const valBpm = document.getElementById('val-bpm');
         inpBpm.oninput = () => {
             params.simulation.bpm = parseInt(inpBpm.value);
             if (valBpm) valBpm.innerText = inpBpm.value;
         };
 
-        const inpCycle = document.getElementById('inp-cycle') as HTMLInputElement;
+        const inpCycle = document.getElementById('inp-cycle');
         const valCycle = document.getElementById('val-cycle');
         inpCycle.oninput = () => {
             params.simulation.maxCycle = parseInt(inpCycle.value);
             if (valCycle) valCycle.innerText = inpCycle.value;
         };
 
-        const inpInfinite = document.getElementById('inp-infinite') as HTMLInputElement;
+        const inpInfinite = document.getElementById('inp-infinite');
         inpInfinite.onchange = () => {
             params.simulation.infiniteLifespan = inpInfinite.checked;
         };
@@ -304,19 +256,19 @@ const sketch = (p: any) => {
         if (btnReset) btnReset.onclick = () => { cubes = []; };
 
         // --- Sound Panel ---
-        const inpVol = document.getElementById('inp-vol') as HTMLInputElement;
+        const inpVol = document.getElementById('inp-vol');
         const valVol = document.getElementById('val-vol');
         inpVol.oninput = () => {
             params.synthesis.gain = parseInt(inpVol.value);
             if (valVol) valVol.innerText = inpVol.value;
         };
 
-        const inpInstrument = document.getElementById('inp-instrument') as HTMLSelectElement;
+        const inpInstrument = document.getElementById('inp-instrument');
         inpInstrument.onchange = () => {
             params.synthesis.soundPreset = inpInstrument.value;
         };
 
-        const inpRev = document.getElementById('inp-rev') as HTMLInputElement;
+        const inpRev = document.getElementById('inp-rev');
         const valRev = document.getElementById('val-rev');
         inpRev.oninput = () => {
             params.synthesis.reverb = parseInt(inpRev.value);
@@ -324,30 +276,30 @@ const sketch = (p: any) => {
             updateReverbMix();
         };
 
-        const inpRevTime = document.getElementById('inp-revtime') as HTMLInputElement;
+        const inpRevTime = document.getElementById('inp-revtime');
         const valRevTime = document.getElementById('val-revtime');
         inpRevTime.oninput = () => {
             params.synthesis.reverbTime = parseInt(inpRevTime.value);
             if (valRevTime) valRevTime.innerText = inpRevTime.value;
-            updateReverbTime(); // Update continuously for smooth feel, or on change for perf
+            updateReverbTime();
         };
 
         // --- Harmony Panel ---
-        const inpBase = document.getElementById('inp-base') as HTMLInputElement;
+        const inpBase = document.getElementById('inp-base');
         const valBase = document.getElementById('val-base');
         inpBase.oninput = () => {
             params.harmony.baseNote = parseInt(inpBase.value);
             if (valBase) valBase.innerText = inpBase.value;
         };
 
-        const inpScale = document.getElementById('inp-scale') as HTMLSelectElement;
+        const inpScale = document.getElementById('inp-scale');
         inpScale.onchange = () => {
             params.harmony.scale = inpScale.value;
         };
 
         // --- Collapsible Logic ---
         document.querySelectorAll('.panel-header').forEach(header => {
-            header.addEventListener('click', (e: any) => {
+            header.addEventListener('click', (e) => {
                 const panel = e.target.closest('.glass-panel');
                 panel.classList.toggle('collapsed');
             });
@@ -369,19 +321,16 @@ const sketch = (p: any) => {
         uiLayer.textFont(font);
         uiLayer.textSize(14);
         
-        // --- Audio Setup ---
         const ac = p.getAudioContext();
         
-        // Create a Master Gain Node to route instruments through
         masterGain = ac.createGain();
-        masterGain.connect(ac.destination); // Connect dry signal to output
+        masterGain.connect(ac.destination); 
         
-        // Initialize Reverb
         reverb = new p5.Reverb();
-        reverb.process(masterGain, 3, 2); // Connect masterGain to reverb, init with 3s, 2 decay
-        reverb.drywet(0.4); // Initial wet amount
+        reverb.process(masterGain, 3, 2); 
+        reverb.drywet(0.4); 
         
-        const loadInstrument = async (name: string, presetId: string) => {
+        const loadInstrument = async (name, presetId) => {
             try {
                 const instrument = new Soundfont(ac, { 
                     instrument: presetId,
@@ -395,7 +344,6 @@ const sketch = (p: any) => {
             }
         };
 
-        // Load Piano first to enable UI quickly. Then load others sequentially to avoid mobile freeze.
         loadInstrument('Piano', 'acoustic_grand_piano').then(async () => {
             instrumentsLoaded = true;
             const startBtn = document.getElementById('start-button');
@@ -404,7 +352,6 @@ const sketch = (p: any) => {
                 startBtn.removeAttribute('disabled');
             }
             
-            // Load others sequentially in background
             await loadInstrument('Rhodes', 'electric_piano_1');
             await loadInstrument('Guitar', 'acoustic_guitar_nylon');
             await loadInstrument('Xylophone', 'xylophone');
@@ -412,24 +359,20 @@ const sketch = (p: any) => {
             console.log("All instruments loaded");
         });
 
-        // Initialize UI Logic
         setupUI();
         updateReverbMix();
         updateReverbTime();
 
-        // Start Button Logic
         const startButton = document.getElementById('start-button');
         const startOverlay = document.getElementById('start-overlay');
         
-        // Initial button state
         if (startButton) {
             startButton.setAttribute('disabled', 'true');
             startButton.textContent = "Loading Instruments...";
         }
 
-        const startExperience = async (event: any) => {
+        const startExperience = async (event) => {
             event.preventDefault();
-            // Start audio if piano is loaded; others might still be loading which is fine.
             if (audioStarted || !instrumentsLoaded) return;
             
             try {
@@ -437,7 +380,6 @@ const sketch = (p: any) => {
                 audioStarted = true;
                 startOverlay?.classList.add('hidden');
                 
-                // Init effects params again to ensure state
                 updateReverbMix();
                 updateReverbTime();
                 
@@ -503,11 +445,10 @@ const sketch = (p: any) => {
         uiLayer.fill(200, 0, 100, 100);
         uiLayer.noStroke();
 
-        // @ts-ignore
         const scaleIntervals = SCALES[params.harmony.scale];
         const numNotesInScale = scaleIntervals.length;
 
-        const getNoteNameForLane = (i: number) => {
+        const getNoteNameForLane = (i) => {
             const noteInScaleIndex = i % numNotesInScale;
             const octaveOffset = Math.floor(i / numNotesInScale);
             const scaleInterval = scaleIntervals[noteInScaleIndex];
@@ -548,28 +489,7 @@ const sketch = (p: any) => {
     p.mouseClicked = () => {
         if (!audioStarted) return;
         
-        // Check if mouse is interacting with UI to prevent creating cubes underneath
         const uiContainer = document.getElementById('ui-container');
-        if (uiContainer) {
-             const rect = uiContainer.getBoundingClientRect();
-             // Simple check: if mouse is in the UI header strip area. 
-             // Note: The glass panels take up width but pointer-events: none is on container.
-             // We need to check if we are over a panel specifically.
-             // Since we added pointer-events: auto to panels, DOM events propagate.
-             // However, p5 interaction happens on canvas. 
-             // Canvas is z-index 0, UI is z-index 10. 
-             // If we click a UI element, the browser handles it.
-             // But clicks "through" the gap might trigger canvas.
-             // Let's explicitly check targets.
-        }
-
-        // We can just rely on Event bubbling. 
-        // If a click hit a UI element, it likely wouldn't reach the canvas click handler 
-        // if we stop propagation, but p5 listens to the canvas.
-        // A simple coordinate check for the top UI area is safest.
-        
-        // Approximate check: If mouseY is within the visible UI area (first ~200px if expanded, or ~50px if collapsed).
-        // A more robust way: use elementFromPoint
         const target = document.elementFromPoint(p.mouseX, p.mouseY);
         if (target && target.closest('.glass-panel')) {
             return; 
@@ -596,7 +516,6 @@ const sketch = (p: any) => {
         }
 
         if (isHit && cubes.length < 50) {
-            // @ts-ignore
             const normalizedClickPos = p.map(clickPosOnAxis, -cylinderLength / 2, cylinderLength / 2, 0, 1);
             const noteIndex = p.floor(normalizedClickPos * noteCount);
             const quantizedPos = p.map(noteIndex + 0.5, 0, noteCount, -cylinderLength / 2, cylinderLength / 2);
