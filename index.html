@@ -16,9 +16,14 @@
             --glass-bg: rgba(20, 20, 25, 0.65);
             --glass-border: rgba(255, 255, 255, 0.1);
             --input-bg: rgba(0, 0, 0, 0.3);
+            --panel-header-bg: rgba(255, 255, 255, 0.05);
+            --label-color: #aaa;
+            --btn-bg: rgba(255, 255, 255, 0.1);
+            --select-option-bg: #000000;
+            --select-option-text: #e0e0e0;
         }
 
-        /* Basic styles for a clean, dark theme */
+        /* Basic styles */
         body {
             background-color: var(--bg-color);
             color: var(--text-color);
@@ -83,10 +88,10 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            background: rgba(255, 255, 255, 0.05);
+            background: var(--panel-header-bg);
             user-select: none;
             border-bottom: 1px solid transparent;
-            transition: border-color 0.3s;
+            transition: border-color 0.3s, background-color 0.3s;
         }
         
         .glass-panel:not(.collapsed) .panel-header {
@@ -118,7 +123,7 @@
         }
 
         label {
-            color: #aaa;
+            color: var(--label-color);
             font-size: 0.8rem;
             display: flex;
             justify-content: space-between;
@@ -163,6 +168,11 @@
             cursor: pointer;
         }
         
+        select option {
+            background-color: var(--select-option-bg);
+            color: var(--select-option-text);
+        }
+        
         select:focus {
             border-color: var(--accent-color);
         }
@@ -191,7 +201,7 @@
         button.ui-btn {
             flex: 1;
             padding: 8px;
-            background: rgba(255, 255, 255, 0.1);
+            background: var(--btn-bg);
             border: 1px solid var(--glass-border);
             border-radius: 6px;
             color: var(--text-color);
@@ -210,7 +220,9 @@
         #start-overlay {
             position: absolute;
             inset: 0;
-            background-color: rgba(0,0,0,0.8);
+            background-color: rgba(20, 20, 25, 0.65);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
             display: flex;
             align-items: center;
             justify-content: center;
@@ -251,14 +263,19 @@
             0%, 100% { transform: scale(1); }
             50% { transform: scale(1.05); }
         }
+        #theme-toggle {
+            display: none;
+        }
     </style>
 <script type="importmap">
 {
   "imports": {
-    "smplr": "https://cdn.jsdelivr.net/npm/smplr@0.6.0/+esm"
+    "smplr": "https://cdn.jsdelivr.net/npm/smplr@0.6.0/+esm",
+    "midi-writer-js": "https://cdn.jsdelivr.net/npm/midi-writer-js@3.1.1/+esm"
   }
 }
 </script>
+<link rel="stylesheet" href="/index.css">
 </head>
 <body>
     <!-- Start overlay to initialize audio context -->
@@ -346,6 +363,25 @@
                         <option value="Lydian">Lydian</option>
                         <option value="HarmonicMinor">Harmonic Minor</option>
                     </select>
+                </div>
+            </div>
+        </div>
+
+        <!-- Panel 4: Record -->
+        <div class="glass-panel">
+            <div class="panel-header">
+                Record <span class="panel-toggle">▼</span>
+            </div>
+            <div class="panel-content">
+                <div class="control-group">
+                    <label>Format</label>
+                    <select id="inp-record-format">
+                        <option value="midi">MIDI</option>
+                        <option value="audio">Audio (WAV)</option>
+                    </select>
+                </div>
+                <div class="button-group">
+                    <button class="ui-btn" id="btn-record" style="background-color: rgba(255, 0, 0, 0.2);">Start Recording</button>
                 </div>
             </div>
         </div>

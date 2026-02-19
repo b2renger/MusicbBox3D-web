@@ -1,4 +1,5 @@
 import { Soundfont } from 'smplr';
+import { Track, NoteEvent, Writer } from 'midi-writer-js';
 
 // p5.js is loaded globally via the script tag in index.html.
 
@@ -30,6 +31,12 @@ const sketch = (p) => {
     
     let audioStarted = false;
     let instrumentsLoaded = false;
+    
+    let recording = false;
+    let recordStartTime = 0;
+    let recordedNotes = [];
+    let mediaRecorder;
+    let audioChunks = [];
     
     let font;
     let uiLayer;
@@ -136,6 +143,15 @@ const sketch = (p) => {
                 } catch (e) {
                     console.warn("Error playing note:", e);
                 }
+            }
+
+            if (recording) {
+                recordedNotes.push({
+                    midiNote: midiNote,
+                    time: (this.p.millis() - recordStartTime) / 1000,
+                    duration: 0.5, // Shorter duration for percussive feel
+                    velocity: Math.floor(gain * 100)
+                });
             }
         }
 
@@ -255,6 +271,47 @@ const sketch = (p) => {
         const btnReset = document.getElementById('btn-reset');
         if (btnReset) btnReset.onclick = () => { cubes = []; };
 
+        const btnRecord = document.getElementById('btn-record');
+        const inpRecordFormat = document.getElementById('inp-record-format');
+
+        if (btnRecord) {
+            btnRecord.onclick = () => {
+                if (!recording) {
+                    recording = true;
+                    recordStartTime = p.millis();
+                    recordedNotes = [];
+                    
+                    const format = inpRecordFormat ? inpRecordFormat.value : 'midi';
+                    
+                    if (format === 'audio') {
+                        audioChunks = [];
+                        if (mediaRecorder && mediaRecorder.state === 'inactive') {
+                            mediaRecorder.start();
+                        }
+                    }
+
+                    btnRecord.innerText = "Stop & Export";
+                    btnRecord.style.backgroundColor = "rgba(255, 0, 0, 0.6)";
+                    if (inpRecordFormat) inpRecordFormat.disabled = true;
+                } else {
+                    recording = false;
+                    const format = inpRecordFormat ? inpRecordFormat.value : 'midi';
+
+                    if (format === 'audio') {
+                        if (mediaRecorder && mediaRecorder.state === 'recording') {
+                            mediaRecorder.stop();
+                        }
+                    } else {
+                        exportMidi();
+                    }
+
+                    btnRecord.innerText = "Start Recording";
+                    btnRecord.style.backgroundColor = "rgba(255, 0, 0, 0.2)";
+                    if (inpRecordFormat) inpRecordFormat.disabled = false;
+                }
+            };
+        }
+
         // --- Sound Panel ---
         const inpVol = document.getElementById('inp-vol');
         const valVol = document.getElementById('val-vol');
@@ -304,6 +361,48 @@ const sketch = (p) => {
                 panel.classList.toggle('collapsed');
             });
         });
+        // --- Theme Toggle ---
+    }
+
+    function exportMidi() {
+        if (recordedNotes.length === 0) {
+            console.log("No notes recorded.");
+            return;
+        }
+
+        // midi-writer-js default ticks per beat is 128
+        const ticksPerBeat = 128;
+        const ticksPerSecond = (params.simulation.bpm / 60) * ticksPerBeat;
+
+        // Sort notes by start time to be safe
+        recordedNotes.sort((a, b) => a.time - b.time);
+
+        const track = new Track();
+        track.setTempo(params.simulation.bpm);
+
+        for (const note of recordedNotes) {
+            const startTick = Math.round(note.time * ticksPerSecond);
+            const durationTicks = Math.round(note.duration * ticksPerSecond);
+            
+            // Using 'tick' as the absolute tick position for the note event.
+            // This allows for polyphony and correct timing regardless of overlap.
+            track.addEvent(new NoteEvent({
+                pitch: [note.midiNote],
+                duration: 'T' + durationTicks,
+                tick: startTick, // Use 'tick' for absolute positioning
+                velocity: note.velocity
+            }));
+        }
+
+        const write = new Writer(track);
+        const dataUri = write.dataUri();
+        
+        const link = document.createElement('a');
+        link.href = dataUri;
+        link.download = 'chime-wall-recording.mid';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
     }
 
     p.preload = () => {
@@ -323,8 +422,33 @@ const sketch = (p) => {
         
         const ac = p.getAudioContext();
         
+        // Create a MediaStreamDestination to record audio
+        const dest = ac.createMediaStreamDestination();
+        mediaRecorder = new MediaRecorder(dest.stream);
+        
+        mediaRecorder.ondataavailable = (e) => {
+            if (e.data.size > 0) {
+                audioChunks.push(e.data);
+            }
+        };
+        
+        mediaRecorder.onstop = () => {
+            const blob = new Blob(audioChunks, { type: 'audio/wav' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = 'chime-wall-recording.wav';
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+            audioChunks = []; // Reset chunks
+        };
+
         masterGain = ac.createGain();
         masterGain.connect(ac.destination); 
+        masterGain.connect(dest); // Connect master gain to recorder destination as well
         
         reverb = new p5.Reverb();
         reverb.process(masterGain, 3, 2); 
